@@ -1,7 +1,8 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:skinsense/models/product.dart'; // Assuming you have a Product model
-import 'package:skinsense/screens/products_screen.dart'; // Import the ProductsScreen
-import 'package:skinsense/services/database_helper.dart'; // Import the DatabaseHelper
+import 'package:skinsense/models/product.dart';
+import 'package:skinsense/screens/products_screen.dart';
+import 'package:skinsense/services/database_helper.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -12,44 +13,38 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   List<String> selectedConcerns = [];
-  late Future<List<String>> _skinConcernsFuture;
-  bool _isLoading = false;
+  List<String> allConcerns = [];
+  bool _isExpanded = false;
+  bool _isLoading = true;
+  bool _isFindingProducts = false;
 
   @override
   void initState() {
     super.initState();
-    _loadSkinConcerns();
+    _initializeData();
   }
 
-  Future<void> _loadSkinConcerns() async {
-    setState(() => _isLoading = true);
+  Future<void> _initializeData() async {
     try {
-      // Load skin concerns from your assets or another source
-      _skinConcernsFuture = DatabaseHelper.fetchProducts().then((products) {
-        // Retrieve skin concerns from the products in the database
-        Set<String> concernsSet = {};
-        for (var product in products) {
-          concernsSet.addAll(product.skinConcerns);
-        }
-        return concernsSet.toList();
-      });
-      await _skinConcernsFuture;
+      final concerns = await DatabaseHelper.fetchAllSkinConcerns();
+      if (kDebugMode) {
+        print('All available skin concerns: $allConcerns');
+      }
+      if (mounted) {
+        setState(() {
+          allConcerns = concerns;
+          _isLoading = false;
+        });
+      }
     } catch (e) {
-      debugPrint('Error loading skin concerns: $e');
-      _skinConcernsFuture = Future.value([]);
-    } finally {
+      debugPrint('Error initializing data: $e');
       if (mounted) {
         setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to load skin concerns: $e')),
+        );
       }
     }
-  }
-
-  Future<List<Product>> _getProductsByConcerns() async {
-    final allProducts = await DatabaseHelper.fetchProducts();
-    return allProducts.where((product) {
-      return product.skinConcerns.any((concern) =>
-          selectedConcerns.contains(concern));
-    }).toList();
   }
 
   @override
@@ -60,169 +55,213 @@ class _HomeScreenState extends State<HomeScreen> {
         centerTitle: true,
         backgroundColor: Colors.pink,
       ),
-      body: FutureBuilder<List<String>>(
-        future: _skinConcernsFuture,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(
-              child: CircularProgressIndicator(
-                valueColor: AlwaysStoppedAnimation<Color>(Colors.pink),
-              ),
-            );
-          }
-
-          if (snapshot.hasError || snapshot.data == null) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Text(
-                    'Failed to load skin concerns',
-                    style: TextStyle(fontSize: 18),
-                  ),
-                  const SizedBox(height: 20),
-                  ElevatedButton(
-                    onPressed: _loadSkinConcerns,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.pink,
-                    ),
-                    child: const Text('Retry'),
-                  ),
-                ],
-              ),
-            );
-          }
-
-          final allConcerns = snapshot.data!;
-          return _buildConcernsSelection(allConcerns);
-        },
-      ),
+      body: _isLoading
+          ? const Center(
+        child: CircularProgressIndicator(
+          valueColor: AlwaysStoppedAnimation<Color>(Colors.pink),
+        ),
+      )
+          : _buildMainContent(),
     );
   }
 
-  Widget _buildConcernsSelection(List<String> concerns) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        children: [
-          const Text(
-            'Select your skin concerns',
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: Colors.pink,
+  Widget _buildMainContent() {
+    return Column(
+      children: [
+        Expanded(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Select your skin concerns',
+                  style: TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.pink,
+                  ),
+                ),
+                const SizedBox(height: 30),
+                _buildConcernsDropdown(),
+                const SizedBox(height: 30),
+                _buildSelectedConcernsDisplay(),
+              ],
             ),
           ),
-          const SizedBox(height: 30),
-          _buildConcernsDropdown(concerns),
-          const SizedBox(height: 30),
-          _buildSelectedConcernsDisplay(),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
-  Widget _buildConcernsDropdown(List<String> concerns) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.pink),
-      ),
-      child: ExpansionTile(
-        title: Text(
-          selectedConcerns.isEmpty
-              ? 'Select skin concerns'
-              : '${selectedConcerns.length} selected',
-          style: const TextStyle(fontWeight: FontWeight.bold),
-        ),
-        children: [
-          if (concerns.isEmpty)
-            const ListTile(
-              title: Text('No skin concerns available'),
-            )
-          else
-            ConstrainedBox(
-              constraints: BoxConstraints(
-                maxHeight: MediaQuery
-                    .of(context)
-                    .size
-                    .height * 0.4,
-              ),
-              child: ListView.builder(
-                shrinkWrap: true,
-                itemCount: concerns.length,
-                itemBuilder: (context, index) {
-                  final concern = concerns[index];
-                  return CheckboxListTile(
-                    title: Text(concern),
-                    value: selectedConcerns.contains(concern),
-                    onChanged: (value) {
-                      setState(() {
-                        if (value == true && !selectedConcerns.contains(
-                            concern)) {
-                          selectedConcerns.add(concern);
-                        } else {
-                          selectedConcerns.remove(concern);
-                        }
-                      });
-                    },
-                    controlAffinity: ListTileControlAffinity.leading,
-                  );
-                },
-              ),
+  Widget _buildConcernsDropdown() {
+    return Column(
+      children: [
+        // Dropdown header
+        InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: () => setState(() => _isExpanded = !_isExpanded),
+          child: Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: Colors.pink),
             ),
-        ],
-      ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  selectedConcerns.isEmpty
+                      ? 'Select skin concerns'
+                      : '${selectedConcerns.length} selected',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
+                  ),
+                ),
+                Icon(
+                  _isExpanded ? Icons.arrow_drop_up : Icons.arrow_drop_down,
+                  color: Colors.pink,
+                ),
+              ],
+            ),
+          ),
+        ),
+        // Dropdown content
+        AnimatedSize(
+          duration: const Duration(milliseconds: 200),
+          child: Container(
+            margin: const EdgeInsets.only(top: 4),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: Colors.pink.withOpacity(0.5)),
+            ),
+            child: _isExpanded
+                ? ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 200),
+              child: _buildConcernsList(),
+            )
+                : null, // Changed from SizedBox() to null
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildConcernsList() {
+    if (allConcerns.isEmpty) {
+      return const Padding(
+        padding: EdgeInsets.all(16),
+        child: Text(
+          'No skin concerns available',
+          style: TextStyle(color: Colors.grey),
+        ),
+      );
+    }
+
+    return ListView.builder(
+      shrinkWrap: true,
+      physics: const ClampingScrollPhysics(),
+      itemCount: allConcerns.length,
+      itemBuilder: (context, index) {
+        final concern = allConcerns[index];
+        return CheckboxListTile(
+          title: Text(concern),
+          value: selectedConcerns.contains(concern),
+          onChanged: (value) {
+            setState(() {
+              if (value == true) {
+                selectedConcerns.add(concern);
+              } else {
+                selectedConcerns.remove(concern);
+              }
+            });
+          },
+          controlAffinity: ListTileControlAffinity.leading,
+          activeColor: Colors.pink,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+        );
+      },
     );
   }
 
   Widget _buildSelectedConcernsDisplay() {
-    if (selectedConcerns.isEmpty) {
-      return const SizedBox.shrink();
-    }
+    if (selectedConcerns.isEmpty) return const SizedBox();
 
     return Column(
       children: [
         Wrap(
           spacing: 8,
           runSpacing: 8,
-          children: selectedConcerns.map((concern) =>
-              Chip(
-                label: Text(concern),
-                deleteIcon: const Icon(Icons.close, size: 16),
-                onDeleted: () {
-                  setState(() {
-                    selectedConcerns.remove(concern);
-                  });
-                },
-              )).toList(),
+          children: selectedConcerns.map((concern) => Chip(
+            label: Text(concern),
+            deleteIcon: const Icon(Icons.close, size: 16),
+            onDeleted: () => setState(() => selectedConcerns.remove(concern)),
+            backgroundColor: Colors.pink[50],
+            labelStyle: const TextStyle(color: Colors.pink),
+          )).toList(),
         ),
         const SizedBox(height: 20),
         ElevatedButton(
-          onPressed: () async {
-            // Fetch products from the database that match the selected concerns
-            final products = await DatabaseHelper.fetchProductsByConcerns(
-                selectedConcerns);
-
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) =>
-                    ProductsScreen(
-                      selectedConcerns: selectedConcerns,
-                      products: products, // Pass the products list here
-                    ),
-              ),
-            );
-          },
+          onPressed: selectedConcerns.isEmpty ? null : _findProducts,
           style: ElevatedButton.styleFrom(
             backgroundColor: Colors.pink,
             minimumSize: const Size(double.infinity, 50),
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+            ),
           ),
-          child: const Text('Find Products'),
+          child: _isFindingProducts
+              ? const SizedBox(
+            width: 20,
+            height: 20,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: Colors.white,
+            ),
+          )
+              : const Text(
+            'Find Products',
+            style: TextStyle(fontSize: 16),
+          ),
         ),
       ],
     );
+  }
+
+  Future<void> _findProducts() async {
+    if (selectedConcerns.isEmpty) return;
+
+    setState(() => _isFindingProducts = true);
+    try {
+      final products = await DatabaseHelper.fetchProductsByConcerns(
+          selectedConcerns);
+      if (!mounted) return;
+
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => ProductsScreen(
+            selectedConcerns: selectedConcerns,
+            products: products,
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error finding products: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isFindingProducts = false);
+      }
+    }
   }
 }
