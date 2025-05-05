@@ -1,4 +1,5 @@
 class Product {
+  final int? id;
   final String name;
   final String brand;
   final String price;
@@ -8,6 +9,7 @@ class Product {
   final String imagePath;
 
   Product({
+    this.id,
     required this.name,
     required this.brand,
     required this.price,
@@ -17,62 +19,88 @@ class Product {
     required this.imagePath,
   });
 
-  // Empty Product constructor
   factory Product.empty() {
     return Product(
       name: '',
       brand: '',
       price: '',
       link: '',
-      skinConcerns: [],
       ingredients: [],
-      imagePath: '', // Added empty string for imagePath
+      skinConcerns: [],
+      imagePath: '',
     );
   }
 
-  // Parse product information from JSON
-  factory Product.fromJson(Map<String, dynamic> json) {
+  Product copyWith({
+    int? id,
+    String? name,
+    String? brand,
+    String? price,
+    String? link,
+    List<String>? ingredients,
+    List<String>? skinConcerns,
+    String? imagePath,
+  }) {
     return Product(
-      name: json['name']?.toString() ?? '',
-      brand: json['brand']?.toString() ?? '',
-      price: json['price']?.toString() ?? '',
-      link: json['link']?.toString() ?? '',
-      ingredients: (json['ingredients']?.toString() ?? '').split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList(),
-      skinConcerns: (json['skinConcerns']?.toString() ?? '').split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList(),
-      imagePath: json['imagePath']?.toString() ?? '',
+      id: id ?? this.id,
+      name: name ?? this.name,
+      brand: brand ?? this.brand,
+      price: price ?? this.price,
+      link: link ?? this.link,
+      ingredients: ingredients ?? this.ingredients,
+      skinConcerns: skinConcerns ?? this.skinConcerns,
+      imagePath: imagePath ?? this.imagePath,
     );
   }
 
-
-// Helper function to safely get a string from JSON
-  static String _getString(Map<String, dynamic> json, String key) {
-    return json[key]?.toString() ?? '';
-  }
-
-  // Helper function to parse CSV-like string values
-  static List<String> _parseCsvString(String input) {
-    if (input.isEmpty) return [];
-
-    // Handle both quoted and unquoted values
-    final RegExp regExp = RegExp(r'"([^"]*)"|([^,]+)');
-    final matches = regExp.allMatches(input);
-
-    return matches.map((match) {
-      return (match.group(1)?.trim() ?? match.group(2)?.trim() ?? '')
-          .replaceAll(RegExp(r'\s+'), ' ');
-    }).where((item) => item.isNotEmpty).toList();
-  }
-
-  // Optionally add a toJson method if you need serialization
-  Map<String, dynamic> toJson() {
+  // Convert to Map for database operations
+  Map<String, dynamic> toMap() {
     return {
+      'id': id,
       'name': name,
       'brand': brand,
       'price': price,
       'link': link,
-      'skinConcerns': skinConcerns.join(','),
       'ingredients': ingredients.join(','),
+      'skinConcerns': skinConcerns.join(','),
       'imagePath': imagePath,
     };
+  }
+
+  // Create Product from database map
+  factory Product.fromMap(Map<String, dynamic> map) {
+    return Product(
+      id: map['id'] as int?,
+      name: map['name'] as String,
+      brand: map['brand'] as String,
+      price: map['price'] as String,
+      link: map['link'] as String,
+      ingredients: (map['ingredients'] as String).split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList(),
+      skinConcerns: (map['skinConcerns'] as String).split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList(),
+      imagePath: map['imagePath'] as String,
+    );
+  }
+
+  // For CSV parsing
+  factory Product.fromCsv(List<dynamic> row, Map<String, int> headerIndices) {
+    return Product(
+      name: row[headerIndices['Name']!].toString().trim(),
+      brand: row[headerIndices['Brand']!].toString().trim(),
+      price: row[headerIndices['Price']!].toString().trim(),
+      link: row[headerIndices['Link']!].toString().trim(),
+      ingredients: row[headerIndices['Ingredients']!]
+          .toString()
+          .split(',')
+          .map((e) => e.trim())
+          .where((e) => e.isNotEmpty)
+          .toList(),
+      skinConcerns: row[headerIndices['Skin_Concerns']!]
+          .toString()
+          .split(',')
+          .map((e) => e.trim())
+          .where((e) => e.isNotEmpty)
+          .toList(),
+      imagePath: row[headerIndices['Image_path']!].toString().trim(),
+    );
   }
 }

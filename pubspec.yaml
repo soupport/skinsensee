@@ -36,11 +36,10 @@ dependencies:
   provider: ^6.0.5
   sqflite: ^2.4.2
   path_provider: ^2.1.5
-<<<<<<< HEAD
-=======
   cached_network_image: ^3.3.0
+  shared_preferences: ^2.5.3
+  image_picker: ^1.1.2
 
->>>>>>> 65760b3 (new images added)
 
 
 
@@ -48,6 +47,7 @@ dependencies:
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
 
+  path: any
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -66,8 +66,6 @@ dev_dependencies:
 flutter:
   assets:
     - assets/skinsense_boots_products.csv
-<<<<<<< HEAD
-=======
     - assets/product_images/Anua Heartleaf Pore Control Cleansing Oil 200ml_20250423175014.jpg
     - assets/product_images/Anua Heartleaf Quercetinol Pore Deep Cleansing Foa_20250423175005.jpg
     - assets/product_images/Anua Heartleaf 70 Daily Lotion 200ml_20250423175104.jpg
@@ -118,7 +116,8 @@ flutter:
     - assets/product_images/SKIN1004 Madagascar Centella Light Cleansing Oil 2_20250423175038.jpg
     - assets/product_images/SKIN1004 Madagascar Centella Soothing Cream 75ml_20250423175107.jpg
     - assets/product_images/Tocobo Bio Watery Sun Cream SPF50 PA 50ml_20250423174955.jpg
->>>>>>> 65760b3 (new images added)
+    - assets/messages/home_page_tips.txt
+    - assets/messages/Ingredient_messages.txt
 
 
   # The following line ensures that the Material Icons font is

@@ -14,7 +14,7 @@ class DataLoader {
     }
 
     // Create a Set to store skin concerns and remove duplicates
-    Set<String> skinConcernsSet = Set<String>();
+    Set<String> skinConcernsSet = <String>{};
 
     // Start iterating from the second row (since the first row is the header)
     for (var i = 1; i < rows.length; i++) {

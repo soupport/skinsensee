@@ -1,238 +1,268 @@
-import 'package:csv/csv.dart';
+import 'dart:math';
+
+import 'package:flutter/cupertino.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
-import 'package:skinsense/models/product.dart';
 import 'package:flutter/services.dart';
-import 'dart:developer' as developer;
+import 'package:csv/csv.dart';
+import 'package:skinsense/models/product.dart';
 
 class DatabaseHelper {
+  static final DatabaseHelper instance = DatabaseHelper._init();
   static Database? _database;
-  static const String _dbName = 'skinsense.db';
-  static const int _dbVersion = 3; // Incremented version for schema fix
 
-  // Table and column names
-  static const String tableProducts = 'products';
-  static const String columnId = 'id';
-  static const String columnName = 'name';
-  static const String columnBrand = 'brand';
-  static const String columnPrice = 'price';
-  static const String columnLink = 'link';
-  static const String columnIngredients = 'ingredients';
-  static const String columnSkinConcerns = 'skinConcerns';
-  static const String columnImagePath = 'imagePath';
+  DatabaseHelper._init();
 
-  static Future<Database> get database async {
+  Future<Database> get database async {
     if (_database != null) return _database!;
     _database = await _initDatabase();
     return _database!;
   }
 
-  static Future<Database> _initDatabase() async {
-    final String path = join(await getDatabasesPath(), _dbName);
+  Future<Database> _initDatabase() async {
+    final dbPath = await getDatabasesPath();
+    final path = join(dbPath, 'skinsense.db');
+
     return await openDatabase(
       path,
+      version: 2,
       onCreate: _onCreate,
-      version: _dbVersion,
       onUpgrade: _onUpgrade,
     );
   }
 
-  static Future<void> _onCreate(Database db, int version) async {
+  Future<void> _onCreate(Database db, int version) async {
     await db.execute('''
-      CREATE TABLE $tableProducts(
-        $columnId INTEGER PRIMARY KEY AUTOINCREMENT,
-        $columnName TEXT NOT NULL,
-        $columnBrand TEXT NOT NULL,
-        $columnPrice TEXT NOT NULL,
-        $columnLink TEXT NOT NULL,
-        $columnIngredients TEXT NOT NULL,
-        $columnSkinConcerns TEXT NOT NULL,
-        $columnImagePath TEXT NOT NULL
+      CREATE TABLE products (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        brand TEXT NOT NULL,
+        price TEXT NOT NULL,
+        link TEXT NOT NULL,
+        ingredients TEXT NOT NULL,
+        skinConcerns TEXT NOT NULL,
+        imagePath TEXT NOT NULL
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE user_routine (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        product_id INTEGER NOT NULL,
+        FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
+        UNIQUE(product_id) ON CONFLICT REPLACE
       )
     ''');
   }
 
-  static Future<void> insertProductsFromCSV() async {
-    try {
-      final db = await database;
-      await db.delete(tableProducts); // Clear existing data
-
-      // Load and parse CSV with proper settings
-      final csvData = await rootBundle.loadString('assets/skinsense_boots_products.csv');
-      final rows = const CsvToListConverter(
-        shouldParseNumbers: false,
-        allowInvalid: true,
-      ).convert(csvData, eol: '\n');
-
-      // Verify we have data (header + at least 1 row)
-      if (rows.length <= 1) {
-        developer.log('CSV only contains headers or is empty. Rows found: ${rows.length}');
-        return;
-      }
-
-      // Process headers - exact matching
-      final headers = rows[0].map((e) => e.toString().trim()).toList();
-      final nameIdx = headers.indexOf('Name');
-      final brandIdx = headers.indexOf('Brand');
-      final priceIdx = headers.indexOf('Price');
-      final linkIdx = headers.indexOf('Link');
-      final ingredientsIdx = headers.indexOf('Ingredients');
-      final concernsIdx = headers.indexOf('Skin_Concerns');
-      final imageIdx = headers.indexOf('Image_path');
-
-      // Validate headers
-      if (nameIdx == -1 || brandIdx == -1 || priceIdx == -1 ||
-          linkIdx == -1 || ingredientsIdx == -1 || concernsIdx == -1 ||
-          imageIdx == -1) {
-        developer.log('Missing required columns in CSV. Found headers: $headers');
-        return;
-      }
-
-      // Insert products in transaction
-      int insertedCount = 0;
-      await db.transaction((txn) async {
-        for (var row in rows.skip(1)) {
-          try {
-            // Ensure row has enough columns and is not empty
-            if (row.length <= imageIdx || row.every((cell) => cell.toString().trim().isEmpty)) {
-              continue;
-            }
-
-            await txn.insert(tableProducts, {
-              columnName: row[nameIdx]?.toString().trim() ?? '',
-              columnBrand: row[brandIdx]?.toString().trim() ?? '',
-              columnPrice: row[priceIdx]?.toString().trim() ?? '',
-              columnLink: row[linkIdx]?.toString().trim() ?? '',
-              columnIngredients: row[ingredientsIdx]?.toString().trim() ?? '',
-              columnSkinConcerns: row[concernsIdx]?.toString().trim() ?? '',
-              columnImagePath: row[imageIdx]?.toString().trim() ?? '',
-            });
-            insertedCount++;
-          } catch (e) {
-            developer.log('Error inserting row: ${e.toString()}');
-            developer.log('Problematic row data: $row');
-          }
-        }
-      });
-
-      developer.log('Successfully inserted $insertedCount products');
-    } catch (e) {
-      developer.log('Error in insertProductsFromCSV: ${e.toString()}');
-      rethrow;
-    }
-  }
-
-  static Future<List<Product>> fetchProducts() async {
-    final db = await database;
-    final products = await db.query(tableProducts);
-    return products.map((p) => Product(
-      name: p[columnName]?.toString() ?? '',
-      brand: p[columnBrand]?.toString() ?? '',
-      price: p[columnPrice]?.toString() ?? '',
-      link: p[columnLink]?.toString() ?? '',
-      ingredients: (p[columnIngredients]?.toString() ?? '')
-          .split(',')
-          .map((e) => e.trim())
-          .where((e) => e.isNotEmpty)
-          .toList(),
-      skinConcerns: (p[columnSkinConcerns]?.toString() ?? '')
-          .split(',')
-          .map((e) => e.trim())
-          .where((e) => e.isNotEmpty)
-          .toList(),
-      imagePath: p[columnImagePath]?.toString() ?? '',
-    )).toList();
-  }
-
-  static Future<List<Product>> fetchProductsByConcerns(List<String> concerns) async {
-    if (concerns.isEmpty) return fetchProducts();
-
-    final db = await database;
-    final query = '''
-      SELECT * FROM $tableProducts 
-      WHERE ${List.filled(concerns.length, '$columnSkinConcerns LIKE ?').join(' OR ')}
-    ''';
-    final params = concerns.map((c) => '%$c%').toList();
-
-    final products = await db.rawQuery(query, params);
-    return products.map((p) => Product(
-      name: p[columnName]?.toString() ?? '',
-      brand: p[columnBrand]?.toString() ?? '',
-      price: p[columnPrice]?.toString() ?? '',
-      link: p[columnLink]?.toString() ?? '',
-      ingredients: (p[columnIngredients]?.toString() ?? '')
-          .split(',')
-          .map((e) => e.trim())
-          .where((e) => e.isNotEmpty)
-          .toList(),
-      skinConcerns: (p[columnSkinConcerns]?.toString() ?? '')
-          .split(',')
-          .map((e) => e.trim())
-          .where((e) => e.isNotEmpty)
-          .toList(),
-      imagePath: p[columnImagePath]?.toString() ?? '',
-    )).toList();
-  }
-
-  static Future<List<String>> fetchAllSkinConcerns() async {
-    final db = await database;
-
-    // Get all skin concerns strings from the database
-    final results = await db.query(
-      tableProducts,
-      columns: [columnSkinConcerns],
-    );
-
-    // Extract all concerns and make them unique
-    final allConcerns = <String>{};
-
-    for (final row in results) {
-      final concernsStr = row[columnSkinConcerns]?.toString() ?? '';
-      developer.log('Raw concerns string: $concernsStr'); // Debug log
-
-      // Handle the string format and split properly
-      final concernsList = concernsStr
-          .replaceAll('"', '') // Remove any quotation marks
-          .split(',')          // Split by commas
-          .map((e) => e.trim()) // Trim whitespace
-          .where((e) => e.isNotEmpty && e != 'null') // Remove empty entries
-          .toList();
-
-      developer.log('Parsed concerns: $concernsList'); // Debug log
-      allConcerns.addAll(concernsList);
-    }
-
-    final sortedConcerns = allConcerns.toList()..sort();
-    developer.log('All unique concerns: $sortedConcerns'); // Debug log
-    return sortedConcerns;
-  }
-
-  static Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 2) {
       await db.execute('''
-        ALTER TABLE $tableProducts 
-        ADD COLUMN $columnImagePath TEXT NOT NULL DEFAULT ""
-      ''');
-    }
-    if (oldVersion < 3) {
-      // For any future schema changes
-      await db.execute('''
-        ALTER TABLE $tableProducts 
-        ADD COLUMN $columnImagePath TEXT NOT NULL DEFAULT ""
+        CREATE TABLE IF NOT EXISTS user_routine (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          product_id INTEGER NOT NULL,
+          FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
+          UNIQUE(product_id) ON CONFLICT REPLACE
+        )
       ''');
     }
   }
 
-  static Future<int> getProductCount() async {
+  // Product Operations
+  Future<int> createProduct(Product product) async {
+    final db = await instance.database;
+    return await db.insert('products', product.toMap());
+  }
+
+  Future<Product?> readProduct(int id) async {
+    final db = await instance.database;
+    final maps = await db.query(
+      'products',
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+
+    if (maps.isNotEmpty) {
+      return Product.fromMap(maps.first);
+    } else {
+      return null;
+    }
+  }
+
+  Future<List<Product>> readAllProducts() async {
+    final db = await instance.database;
+    final result = await db.query('products');
+    return result.map((map) => Product.fromMap(map)).toList();
+  }
+
+  Future<int> updateProduct(Product product) async {
+    final db = await instance.database;
+    return await db.update(
+      'products',
+      product.toMap(),
+      where: 'id = ?',
+      whereArgs: [product.id],
+    );
+  }
+
+  Future<int> deleteProduct(int id) async {
+    final db = await instance.database;
+    return await db.delete(
+      'products',
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  // User Routine Operations
+  Future<int> addToUserRoutine(Product product) async {
+    final db = await instance.database;
+
+    // First ensure product exists in main table
+    if (product.id == null) {
+      final id = await createProduct(product);
+      product = product.copyWith(id: id);
+    }
+
+    return await db.insert(
+      'user_routine',
+      {'product_id': product.id},
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<List<Product>> fetchUserRoutineProducts() async {
+    final db = await instance.database;
+    final result = await db.rawQuery('''
+      SELECT p.* FROM products p
+      INNER JOIN user_routine ur ON p.id = ur.product_id
+      ORDER BY ur.id DESC
+    ''');
+    return result.map((map) => Product.fromMap(map)).toList();
+  }
+
+  Future<int> removeFromUserRoutine(int productId) async {
+    final db = await instance.database;
+    return await db.delete(
+      'user_routine',
+      where: 'product_id = ?',
+      whereArgs: [productId],
+    );
+  }
+
+  Future<bool> isInRoutine(int productId) async {
+    final db = await instance.database;
+    final result = await db.query(
+      'user_routine',
+      where: 'product_id = ?',
+      whereArgs: [productId],
+    );
+    return result.isNotEmpty;
+  }
+
+  // CSV Import
+  Future<void> insertProductsFromCSV() async {
     final db = await database;
+    await db.delete('products');
+
+    final csvData = await rootBundle.loadString('assets/skinsense_boots_products.csv');
+    final rows = const CsvToListConverter().convert(csvData, eol: '\n');
+
+    if (rows.length <= 1) return; // Only headers or empty
+
+    // Map headers to indices
+    final headers = rows[0].map((e) => e.toString().trim()).toList();
+    final headerIndices = {
+      'Name': headers.indexOf('Name'),
+      'Brand': headers.indexOf('Brand'),
+      'Price': headers.indexOf('Price'),
+      'Link': headers.indexOf('Link'),
+      'Ingredients': headers.indexOf('Ingredients'),
+      'Skin_Concerns': headers.indexOf('Skin_Concerns'),
+      'Image_path': headers.indexOf('Image_path'),
+    };
+
+    // Batch insert for performance
+    final batch = db.batch();
+    for (var row in rows.skip(1)) {
+      try {
+        if (row.length >= headerIndices.length) {
+          final product = Product.fromCsv(row, headerIndices);
+          batch.insert('products', product.toMap());
+        }
+      } catch (e) {
+        debugPrint('Error processing row: $e');
+      }
+    }
+    await batch.commit();
+  }
+
+  // Search and Filter Operations
+  Future<List<Product>> searchProducts(String query) async {
+    final db = await instance.database;
+    final result = await db.query(
+      'products',
+      where: 'name LIKE ? OR brand LIKE ? OR ingredients LIKE ?',
+      whereArgs: ['%$query%', '%$query%', '%$query%'],
+    );
+    return result.map((map) => Product.fromMap(map)).toList();
+  }
+
+  Future<List<Product>> fetchProductsByConcerns(List<String> concerns) async {
+    if (concerns.isEmpty) return readAllProducts();
+
+    final db = await instance.database;
+    final whereClause = concerns.map((_) => 'skinConcerns LIKE ?').join(' OR ');
+    final whereArgs = concerns.map((c) => '%$c%').toList();
+
+    final result = await db.query(
+      'products',
+      where: whereClause,
+      whereArgs: whereArgs,
+    );
+    return result.map((map) => Product.fromMap(map)).toList();
+  }
+
+  Future<List<String>> fetchAllSkinConcerns() async {
+    final db = await instance.database;
+    final result = await db.rawQuery('''
+      SELECT skinConcerns FROM products
+    ''');
+
+    final concerns = <String>{};
+    for (final row in result) {
+      final concernsStr = row['skinConcerns'] as String;
+      concerns.addAll(concernsStr.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty));
+    }
+
+    return concerns.toList()..sort();
+  }
+
+  // Utility Methods
+  Future<int> getProductCount() async {
+    final db = await instance.database;
     return Sqflite.firstIntValue(
-        await db.rawQuery('SELECT COUNT(*) FROM $tableProducts')
+        await db.rawQuery('SELECT COUNT(*) FROM products')
     ) ?? 0;
   }
 
-  static Future<void> deleteDatabase() async {
-    final path = join(await getDatabasesPath(), _dbName);
-    await databaseFactory.deleteDatabase(path);
-    _database = null;
+  Future<List<Product>> fetchRandomProducts(int count) async {
+    final db = await instance.database;
+    final total = await getProductCount();
+    if (total == 0) return [];
+
+    final randomOffset = (total <= count) ? 0 : Random().nextInt(total - count);
+    final result = await db.query(
+      'products',
+      limit: count,
+      offset: randomOffset,
+    );
+
+    return result.map((map) => Product.fromMap(map)).toList();
+  }
+
+  Future<void> close() async {
+    final db = await instance.database;
+    db.close();
   }
 }
